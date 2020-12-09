@@ -10,8 +10,7 @@
     <link rel="stylesheet" href="css\style.css">
     <link rel="shortcut icon" href='' type="image/x-icon">
 </head>
-{{asset("css/")}}
-<center> <img src= "css\logo-200x200.png" ?>> </center>
+<center> <img src= "css\logo-200x200.png" ?> </center>
 
 <?php
 $adresse = $_SERVER['PHP_SELF'];

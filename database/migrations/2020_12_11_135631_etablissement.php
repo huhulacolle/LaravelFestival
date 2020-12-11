@@ -20,12 +20,12 @@ class Etablissement extends Migration
             $table->char('codePostal', 45);
             $table->char('ville', 35);
             $table->string('tel', 15);
-            $table->string('adresseElectronique', 70);
+            $table->string('adresseElectronique', null, 70);
             $table->integer('type', 1);
             $table->string('civiliteResponsable', 12);
             $table->string('nomResponsable', 25);
-            $table->string('prenomResponsable', 25);
-            $table->integer('nombreChambresOffertes', 11);
+            $table->string('prenomResponsable', null, 25);
+            $table->integer('nombreChambresOffertes', null, 11);
         });
     }
 

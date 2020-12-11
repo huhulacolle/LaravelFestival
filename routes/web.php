@@ -39,7 +39,11 @@ Route::get('SuppressionExec', [FestivalController::class, 'suppression']);
 
 Route::get('AttributionChambres', [FestivalController::class, 'obtenirReqEtablissementsOffrantChambres']);
 
-Route::get('EffectuerOuModifier', [FestivalController::class, 'afficheAttribution']);
+Route::get('EffectuerOuModifiertest', [FestivalController::class, 'afficheAttribution']);
+
+Route::get('EffectuerOuModifier', function () {
+    return view('EnTravaux');
+});
 
 
 // Route::get('AttributionChambres', function () {

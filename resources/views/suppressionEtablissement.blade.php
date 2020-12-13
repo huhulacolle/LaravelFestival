@@ -16,7 +16,7 @@ $id = ($reqNomData->idEtablissement);
 <br><br>
 <a href='SuppressionExec?idEtablissement={{$id}}'>
 Oui</a>&nbsp; &nbsp; &nbsp; &nbsp;
-<a href='GestionEtablissement'>Non</a></h5></center>";
+<a href='GestionEtablissement'>Non</a></h5></center>
 
 
 

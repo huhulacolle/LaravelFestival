@@ -7,7 +7,7 @@
         </td>
     </tr>
 </table>
-<form method='POST' action="ModificationExec">";
+<form method='POST' action="ModificationExec">
 @csrf
 <center>
     <h4> Modification d'un Établissement </h4>

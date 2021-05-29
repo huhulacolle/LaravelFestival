@@ -3,13 +3,13 @@
 namespace Illuminate\Database\Eloquent;
 
 use ArrayAccess;
-use Exception;
 use Illuminate\Contracts\Queue\QueueableCollection;
 use Illuminate\Contracts\Queue\QueueableEntity;
 use Illuminate\Contracts\Routing\UrlRoutable;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Jsonable;
 use Illuminate\Database\ConnectionResolverInterface as Resolver;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\Concerns\AsPivot;
 use Illuminate\Database\Eloquent\Relations\HasManyThrough;
@@ -19,6 +19,7 @@ use Illuminate\Support\Collection as BaseCollection;
 use Illuminate\Support\Str;
 use Illuminate\Support\Traits\ForwardsCalls;
 use JsonSerializable;
+use LogicException;
 
 abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializable, QueueableEntity, UrlRoutable
 {
@@ -79,6 +80,13 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
      * @var array
      */
     protected $withCount = [];
+
+    /**
+     * Indicates whether lazy loading will be prevented on this model.
+     *
+     * @var bool
+     */
+    public $preventsLazyLoading = false;
 
     /**
      * The number of models to return for pagination.
@@ -142,6 +150,20 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
      * @var array
      */
     protected static $ignoreOnTouch = [];
+
+    /**
+     * Indicates whether lazy loading should be restricted on all models.
+     *
+     * @var bool
+     */
+    protected static $modelsShouldPreventLazyLoading = false;
+
+    /**
+     * The callback that is responsible for handling lazy loading violations.
+     *
+     * @var callable|null
+     */
+    protected static $lazyLoadingViolationCallback;
 
     /**
      * The name of the "created at" column.
@@ -330,6 +352,28 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
         }
 
         return false;
+    }
+
+    /**
+     * Prevent model relationships from being lazy loaded.
+     *
+     * @param  bool  $value
+     * @return void
+     */
+    public static function preventLazyLoading($value = true)
+    {
+        static::$modelsShouldPreventLazyLoading = $value;
+    }
+
+    /**
+     * Register a callback that is responsible for handling lazy loading violations.
+     *
+     * @param  callable  $callback
+     * @return void
+     */
+    public static function handleLazyLoadingViolationUsing(callable $callback)
+    {
+        static::$lazyLoadingViolationCallback = $callback;
     }
 
     /**
@@ -619,6 +663,17 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
     }
 
     /**
+     * Eager load related model existence values on the model.
+     *
+     * @param  array|string  $relations
+     * @return $this
+     */
+    public function loadExists($relations)
+    {
+        return $this->loadAggregate($relations, '*', 'exists');
+    }
+
+    /**
      * Eager load relationship column aggregation on the polymorphic relation of a model.
      *
      * @param  string  $relation
@@ -780,6 +835,22 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
         }
 
         return $this->fill($attributes)->save($options);
+    }
+
+    /**
+     * Update the model in the database without raising any events.
+     *
+     * @param  array  $attributes
+     * @param  array  $options
+     * @return bool
+     */
+    public function updateQuietly(array $attributes = [], array $options = [])
+    {
+        if (! $this->exists) {
+            return false;
+        }
+
+        return $this->fill($attributes)->saveQuietly($options);
     }
 
     /**
@@ -1010,7 +1081,7 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
         // If the model has an incrementing key, we can use the "insertGetId" method on
         // the query builder, which will give us back the final inserted ID for this
         // table from the database. Not all tables have to be incrementing though.
-        $attributes = $this->getAttributes();
+        $attributes = $this->getAttributesForInsert();
 
         if ($this->getIncrementing()) {
             $this->insertAndSetId($query, $attributes);
@@ -1061,6 +1132,10 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
      */
     public static function destroy($ids)
     {
+        if ($ids instanceof EloquentCollection) {
+            $ids = $ids->modelKeys();
+        }
+
         if ($ids instanceof BaseCollection) {
             $ids = $ids->all();
         }
@@ -1092,14 +1167,14 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
      *
      * @return bool|null
      *
-     * @throws \Exception
+     * @throws \LogicException
      */
     public function delete()
     {
         $this->mergeAttributesFromClassCasts();
 
         if (is_null($this->getKeyName())) {
-            throw new Exception('No primary key defined on model.');
+            throw new LogicException('No primary key defined on model.');
         }
 
         // If the model doesn't exist, there is nothing to delete so we'll just return
@@ -1131,7 +1206,7 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
     /**
      * Force a hard delete on a soft deleted model.
      *
-     * This method protects developers from running forceDelete when trait is missing.
+     * This method protects developers from running forceDelete when the trait is missing.
      *
      * @return bool|null
      */
@@ -1776,6 +1851,16 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
     }
 
     /**
+     * Determine if lazy loading is disabled.
+     *
+     * @return bool
+     */
+    public static function preventsLazyLoading()
+    {
+        return static::$modelsShouldPreventLazyLoading;
+    }
+
+    /**
      * Dynamically retrieve attributes on the model.
      *
      * @param  string  $key
@@ -1929,5 +2014,7 @@ abstract class Model implements Arrayable, ArrayAccess, Jsonable, JsonSerializab
     public function __wakeup()
     {
         $this->bootIfNotBooted();
+
+        $this->initializeTraits();
     }
 }

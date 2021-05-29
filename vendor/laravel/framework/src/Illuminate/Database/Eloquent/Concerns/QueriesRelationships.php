@@ -223,7 +223,7 @@ trait QueriesRelationships
                         };
                     }
 
-                    $query->where($this->query->from.'.'.$relation->getMorphType(), '=', (new $type)->getMorphClass())
+                    $query->where($this->qualifyColumn($relation->getMorphType()), '=', (new $type)->getMorphClass())
                                 ->whereHas($belongsTo, $callback, $operator, $count);
                 });
             }
@@ -383,9 +383,15 @@ trait QueriesRelationships
             $relation = $this->getRelationWithoutConstraints($name);
 
             if ($function) {
-                $expression = sprintf('%s(%s)', $function, $this->getQuery()->getGrammar()->wrap(
-                    $column === '*' ? $column : $relation->getRelated()->qualifyColumn($column)
-                ));
+                $hashedColumn = $this->getQuery()->from === $relation->getQuery()->getQuery()->from
+                                            ? "{$relation->getRelationCountHash(false)}.$column"
+                                            : $column;
+
+                $wrappedColumn = $this->getQuery()->getGrammar()->wrap(
+                    $column === '*' ? $column : $relation->getRelated()->qualifyColumn($hashedColumn)
+                );
+
+                $expression = $function === 'exists' ? $wrappedColumn : sprintf('%s(%s)', $function, $wrappedColumn);
             } else {
                 $expression = $column;
             }
@@ -419,10 +425,17 @@ trait QueriesRelationships
                 preg_replace('/[^[:alnum:][:space:]_]/u', '', "$name $function $column")
             );
 
-            $this->selectSub(
-                $function ? $query : $query->limit(1),
-                $alias
-            );
+            if ($function === 'exists') {
+                $this->selectRaw(
+                    sprintf('exists(%s) as %s', $query->toSql(), $this->getQuery()->grammar->wrap($alias)),
+                    $query->getBindings()
+                )->withCasts([$alias => 'bool']);
+            } else {
+                $this->selectSub(
+                    $function ? $query : $query->limit(1),
+                    $alias
+                );
+            }
         }
 
         return $this;
@@ -485,6 +498,17 @@ trait QueriesRelationships
     public function withAvg($relation, $column)
     {
         return $this->withAggregate($relation, $column, 'avg');
+    }
+
+    /**
+     * Add subselect queries to include the existence of related models.
+     *
+     * @param  string|array  $relation
+     * @return $this
+     */
+    public function withExists($relation)
+    {
+        return $this->withAggregate($relation, '*', 'exists');
     }
 
     /**

@@ -6,11 +6,13 @@ use ArrayAccess;
 use Closure;
 use Exception;
 use Illuminate\Contracts\Container\BindingResolutionException;
+use Illuminate\Contracts\Container\CircularDependencyException;
 use Illuminate\Contracts\Container\Container as ContainerContract;
 use LogicException;
 use ReflectionClass;
 use ReflectionException;
 use ReflectionParameter;
+use TypeError;
 
 class Container implements ArrayAccess, ContainerContract
 {
@@ -232,6 +234,8 @@ class Container implements ArrayAccess, ContainerContract
      * @param  \Closure|string|null  $concrete
      * @param  bool  $shared
      * @return void
+     *
+     * @throws \TypeError
      */
     public function bind($abstract, $concrete = null, $shared = false)
     {
@@ -249,7 +253,7 @@ class Container implements ArrayAccess, ContainerContract
         // up inside its own Closure to give us more convenience when extending.
         if (! $concrete instanceof Closure) {
             if (! is_string($concrete)) {
-                throw new \TypeError(self::class.'::bind(): Argument #2 ($concrete) must be of type Closure|string|null');
+                throw new TypeError(self::class.'::bind(): Argument #2 ($concrete) must be of type Closure|string|null');
             }
 
             $concrete = $this->getClosure($abstract, $concrete);
@@ -626,7 +630,7 @@ class Container implements ArrayAccess, ContainerContract
     /**
      * An alias function name for make().
      *
-     * @param  string  $abstract
+     * @param  string|callable  $abstract
      * @param  array  $parameters
      * @return mixed
      *
@@ -640,7 +644,7 @@ class Container implements ArrayAccess, ContainerContract
     /**
      * Resolve the given type from the container.
      *
-     * @param  string  $abstract
+     * @param  string|callable  $abstract
      * @param  array  $parameters
      * @return mixed
      *
@@ -659,7 +663,7 @@ class Container implements ArrayAccess, ContainerContract
         try {
             return $this->resolve($id);
         } catch (Exception $e) {
-            if ($this->has($id)) {
+            if ($this->has($id) || $e instanceof CircularDependencyException) {
                 throw $e;
             }
 
@@ -670,18 +674,19 @@ class Container implements ArrayAccess, ContainerContract
     /**
      * Resolve the given type from the container.
      *
-     * @param  string  $abstract
+     * @param  string|callable  $abstract
      * @param  array  $parameters
      * @param  bool  $raiseEvents
      * @return mixed
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\CircularDependencyException
      */
     protected function resolve($abstract, $parameters = [], $raiseEvents = true)
     {
         $abstract = $this->getAlias($abstract);
 
-        // First we wil fire any event handlers that handle the "before" resolving of
+        // First we'll fire any event handlers which handle the "before" resolving of
         // specific types. This gives some hooks the chance to add various extends
         // calls to change the resolution of objects that they're interested in.
         if ($raiseEvents) {
@@ -745,7 +750,7 @@ class Container implements ArrayAccess, ContainerContract
     /**
      * Get the concrete type for a given abstract.
      *
-     * @param  string  $abstract
+     * @param  string|callable  $abstract
      * @return mixed
      */
     protected function getConcrete($abstract)
@@ -763,7 +768,7 @@ class Container implements ArrayAccess, ContainerContract
     /**
      * Get the contextual concrete binding for the given abstract.
      *
-     * @param  string  $abstract
+     * @param  string|callable  $abstract
      * @return \Closure|string|array|null
      */
     protected function getContextualConcrete($abstract)
@@ -789,7 +794,7 @@ class Container implements ArrayAccess, ContainerContract
     /**
      * Find the concrete binding for the given abstract in the contextual binding array.
      *
-     * @param  string  $abstract
+     * @param  string|callable  $abstract
      * @return \Closure|string|null
      */
     protected function findInContextualBindings($abstract)
@@ -816,6 +821,7 @@ class Container implements ArrayAccess, ContainerContract
      * @return mixed
      *
      * @throws \Illuminate\Contracts\Container\BindingResolutionException
+     * @throws \Illuminate\Contracts\Container\CircularDependencyException
      */
     public function build($concrete)
     {
@@ -838,6 +844,10 @@ class Container implements ArrayAccess, ContainerContract
         if (! $reflector->isInstantiable()) {
             return $this->notInstantiable($concrete);
         }
+
+        // if (in_array($concrete, $this->buildStack)) {
+        //     throw new CircularDependencyException("Circular dependency detected while resolving [{$concrete}].");
+        // }
 
         $this->buildStack[] = $concrete;
 
@@ -985,10 +995,14 @@ class Container implements ArrayAccess, ContainerContract
         // the value of the dependency, similarly to how we do this with scalars.
         catch (BindingResolutionException $e) {
             if ($parameter->isDefaultValueAvailable()) {
+                array_pop($this->with);
+
                 return $parameter->getDefaultValue();
             }
 
             if ($parameter->isVariadic()) {
+                array_pop($this->with);
+
                 return [];
             }
 
